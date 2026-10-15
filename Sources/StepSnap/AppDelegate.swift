@@ -15,7 +15,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.action = #selector(togglePopover(_:))
 
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: MenuContentView(store: settingsStore))
+        popover.contentViewController = NSHostingController(
+            rootView: MenuContentView(
+                store: settingsStore,
+                onPickWindow: { window in
+                    NSLog("StepSnap: выбрано окно %@ (%u)", window.label, window.id)
+                },
+                onRequestClose: { [weak self] in self?.closePopover() }
+            )
+        )
     }
 
     @objc func togglePopover(_ sender: Any?) {
