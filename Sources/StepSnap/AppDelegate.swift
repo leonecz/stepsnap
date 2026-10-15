@@ -18,12 +18,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController = NSHostingController(
             rootView: MenuContentView(
                 store: settingsStore,
-                onPickWindow: { window in
-                    NSLog("StepSnap: выбрано окно %@ (%u)", window.label, window.id)
+                onPickWindow: { [weak self] window in
+                    self?.startTemporaryClickProbe(for: window)
                 },
                 onRequestClose: { [weak self] in self?.closePopover() }
             )
         )
+    }
+
+    // ВРЕМЕННО, до Task 9: проверка, что клики в выбранном окне доходят до монитора.
+    // Счётчик в строке меню показывает, сколько кликов признано нашими.
+    private var probeMonitor: ClickMonitor?
+    private var probeClickCount = 0
+
+    private func startTemporaryClickProbe(for window: WindowInfo) {
+        probeMonitor?.stop()
+        probeClickCount = 0
+        statusItem.button?.title = " 0"
+
+        let monitor = ClickMonitor(targetWindowID: window.id) { [weak self] point in
+            guard let self else { return }
+            self.probeClickCount += 1
+            self.statusItem.button?.title = " \(self.probeClickCount)"
+            NSLog("StepSnap probe: шаг №%d в точке %@", self.probeClickCount, NSStringFromPoint(point))
+        }
+        monitor.start()
+        probeMonitor = monitor
+
+        NSLog("StepSnap probe: монитор запущен на окне %@ (%u)", window.label, window.id)
     }
 
     @objc func togglePopover(_ sender: Any?) {

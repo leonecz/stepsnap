@@ -2,9 +2,13 @@ import CoreGraphics
 import Foundation
 import StepSnapCore
 
-/// Окна системы, которые имеет смысл предложить к записи.
+/// Окна системы.
 enum WindowEnumerator {
-    static func capturableWindows() -> [WindowInfo] {
+    /// Все окна от переднего к заднему, без фильтрации.
+    ///
+    /// Нужны для попадания клика: список обязан содержать и наши собственные панели,
+    /// и мелкие чужие окна — иначе клик по ним будет ошибочно приписан окну под ними.
+    static func allWindows() -> [WindowInfo] {
         guard let rawList = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
             kCGNullWindowID
@@ -12,6 +16,11 @@ enum WindowEnumerator {
             return []
         }
 
-        return WindowFilter.capturable(rawList.compactMap(WindowInfo.from(raw:)), ownPID: getpid())
+        return rawList.compactMap(WindowInfo.from(raw:))
+    }
+
+    /// Окна, которые имеет смысл предложить к записи.
+    static func capturableWindows() -> [WindowInfo] {
+        WindowFilter.capturable(allWindows(), ownPID: getpid())
     }
 }
