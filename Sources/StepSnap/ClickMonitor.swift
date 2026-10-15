@@ -8,10 +8,10 @@ import StepSnapCore
 /// Универсальный доступ для мониторинга мыши не нужен.
 final class ClickMonitor {
     private let targetWindowID: UInt32
-    private let onClick: (CGPoint) -> Void
+    private let onClick: (CGPoint, CGRect) -> Void
     private var monitor: Any?
 
-    init(targetWindowID: UInt32, onClick: @escaping (CGPoint) -> Void) {
+    init(targetWindowID: UInt32, onClick: @escaping (CGPoint, CGRect) -> Void) {
         self.targetWindowID = targetWindowID
         self.onClick = onClick
     }
@@ -38,15 +38,20 @@ final class ClickMonitor {
             appKitPoint: NSEvent.mouseLocation,
             primaryScreenHeight: primaryScreenHeight
         )
+        let windows = WindowEnumerator.allWindows()
         let decision = ClickRouter.decide(
             clickPoint: point,
-            windows: WindowEnumerator.allWindows(),
+            windows: windows,
             targetWindowID: targetWindowID
         )
 
-        if case .step(let clickPoint, _) = decision {
-            onClick(clickPoint)
-        }
+        guard case .step(let clickPoint, _) = decision,
+              let target = windows.first(where: { $0.id == targetWindowID })
+        else { return }
+
+        // Границы целевого окна берём из того же списка, по которому принимали решение:
+        // сессия считает по ним относительную точку клика.
+        onClick(clickPoint, target.bounds)
     }
 
     deinit {
