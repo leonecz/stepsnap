@@ -30,6 +30,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appState.onPhaseChanged = { [weak self] phase in
             self?.handlePhaseChange(phase)
         }
+        appState.onHUDNeedsResize = { [weak self] in
+            self?.hud.resizeToFit()
+        }
     }
 
     @objc func togglePopover(_ sender: Any?) {

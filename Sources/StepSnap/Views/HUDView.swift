@@ -23,6 +23,26 @@ struct HUDView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
             }
 
+            // Чекбокс и поле названия — только для режима «сразу».
+            // Чекбокс остаётся на виду, чтобы подпись можно было включить прямо во время записи.
+            if appState.namingToggleVisible {
+                Toggle("Давать название каждому шагу", isOn: Binding(
+                    get: { appState.askNameForEachStep },
+                    set: { appState.setAskNameForEachStep($0) }
+                ))
+                .toggleStyle(.checkbox)
+                .font(.callout)
+
+                if appState.showsNamingField {
+                    TextField("Название шага", text: Binding(
+                        get: { appState.naming?.fieldText ?? "" },
+                        set: { appState.naming?.updateFieldText($0) }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { appState.naming?.commitFieldText() }
+                }
+            }
+
             Button("Стоп") {
                 appState.stopRecording()
             }

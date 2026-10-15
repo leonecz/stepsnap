@@ -39,6 +39,20 @@ final class AppState {
     /// Почему остановились: от этого зависит текст в поповере.
     var stopReason: StopReason = .stoppedByUser
 
+    /// Подпись шагов «на лету» — живёт, пока идёт запись.
+    var naming: StepNaming?
+    var askNameForEachStep = false
+    /// Чекбокс подписи показывается только в режиме «сразу»: в режиме «потом»
+    /// подписи в панели места нет, там список после остановки.
+    var namingToggleVisible = false
+    var showsNamingField = false
+    /// Панель записи должна пересчитать размер (появляется или исчезает поле названия).
+    var onHUDNeedsResize: (() -> Void)?
+
+    /// Режим «потом»: после остановки сначала подписываем шаги, потом сохраняем.
+    var pendingStepList = false
+    var stepNames: [Int: String] = [:]
+
     /// AppKit-обвязка подписывается сюда: показать HUD, закрыть поповер, сменить иконку.
     var onPhaseChanged: ((Phase) -> Void)?
 
@@ -92,6 +106,13 @@ final class AppState {
             stepCount = 0
             latestImage = nil
             lastReportURL = nil
+            pendingStepList = false
+            stepNames = [:]
+
+            askNameForEachStep = settings.askNameForEachStep
+            namingToggleVisible = settings.namingMode == .immediate
+            showsNamingField = namingToggleVisible && settings.askNameForEachStep
+            naming = StepNaming(session: session, enabled: showsNamingField)
 
             let monitor = ClickMonitor(targetWindowID: window.id) { [weak self] point, bounds in
                 self?.handleClick(at: point, windowBounds: bounds)
@@ -114,6 +135,11 @@ final class AppState {
 
     private func handleClick(at point: CGPoint, windowBounds: CGRect) {
         guard phase == .recording, let session else { return }
+
+        // Набранное название относится к предыдущему шагу — закрепляем его до создания нового.
+        if showsNamingField {
+            naming?.clickRecorded()
+        }
 
         session.noteClick(at: point, windowBounds: windowBounds)
         stepCount = session.steps.count
@@ -149,15 +175,59 @@ final class AppState {
         Task { @MainActor in
             await session.waitForPendingCaptures()
             refreshFromSession()
-            _ = saveReport()
+
+            // В режиме «потом» сначала даём подписать шаги. Если окно закрылось — сохраняем
+            // сразу, чтобы человек не остался без отчёта.
+            if settingsStore.current.namingMode == .afterStop, reason == .stoppedByUser {
+                prepareStepList()
+                pendingStepList = true
+            } else {
+                _ = saveReport()
+            }
+
             phase = .finished
         }
+    }
+
+    func setAskNameForEachStep(_ value: Bool) {
+        askNameForEachStep = value
+
+        var settings = settingsStore.current
+        settings.askNameForEachStep = value
+        settingsStore.update(settings)
+
+        showsNamingField = settings.namingMode == .immediate && value
+        naming?.isEnabled = showsNamingField
+
+        // Поле названия появилось или исчезло — панели нужно подстроить высоту.
+        onHUDNeedsResize?()
+    }
+
+    func prepareStepList() {
+        guard let session else { return }
+        stepNames = Dictionary(uniqueKeysWithValues: session.steps.map { ($0.index, $0.name) })
+    }
+
+    func saveFromStepList() {
+        if let session {
+            for (index, name) in stepNames {
+                session.nameStep(at: index, with: name)
+            }
+        }
+        _ = saveReport()
+        pendingStepList = false
+    }
+
+    func saveWithoutNames() {
+        _ = saveReport()
+        pendingStepList = false
     }
 
     func reset() {
         clickMonitor?.stop()
         clickMonitor = nil
         session = nil
+        naming = nil
         scenarioName = ""
         selectedWindow = nil
         stepCount = 0
@@ -165,6 +235,8 @@ final class AppState {
         lastReportURL = nil
         errorMessage = nil
         stopReason = .stoppedByUser
+        pendingStepList = false
+        stepNames = [:]
         phase = .idle
     }
 

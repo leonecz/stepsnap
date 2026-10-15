@@ -38,6 +38,24 @@ final class RecordHUDPanel {
         panel = nil
     }
 
+    /// Подстраивает панель под изменившееся содержимое (появилось или исчезло поле названия),
+    /// сохраняя её положение в правом верхнем углу.
+    func resizeToFit() {
+        guard let panel, let hosting = panel.contentView as? NSHostingView<HUDView> else { return }
+
+        let oldFrame = panel.frame
+        let contentSize = hosting.fittingSize
+        let newSize = panel.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize)).size
+
+        panel.setFrame(
+            NSRect(
+                origin: NSPoint(x: oldFrame.maxX - newSize.width, y: oldFrame.maxY - newSize.height),
+                size: newSize
+            ),
+            display: true
+        )
+    }
+
     private func positionInTopRightCorner(_ panel: NSPanel) {
         guard let screen = NSScreen.main else { return }
 

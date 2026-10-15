@@ -117,34 +117,38 @@ struct MenuContentView: View {
 
     private var finishedView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(appState.stopReason == .targetWindowClosed ? "Окно закрылось" : "Отчёт готов")
-                .font(.headline)
+            if appState.pendingStepList {
+                StepListView(appState: appState)
+            } else {
+                Text(appState.stopReason == .targetWindowClosed ? "Окно закрылось" : "Отчёт готов")
+                    .font(.headline)
 
-            if let errorMessage = appState.errorMessage {
-                Text(errorMessage)
-                    .font(.callout)
-                    .foregroundStyle(.red)
-            }
+                if let errorMessage = appState.errorMessage {
+                    Text(errorMessage)
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                }
 
-            if let url = appState.lastReportURL {
-                Text(url.path)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
+                if let url = appState.lastReportURL {
+                    Text(url.path)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+
+                    HStack {
+                        Button("Открыть PDF") { appState.openReport() }
+                        Button("Показать в Finder") { appState.revealReportInFinder() }
+                    }
+                } else {
+                    Text("Шагов записано: \(appState.stepCount)")
+                        .font(.callout)
+                }
 
                 HStack {
-                    Button("Открыть PDF") { appState.openReport() }
-                    Button("Показать в Finder") { appState.revealReportInFinder() }
+                    Button("Новый сценарий") { appState.reset() }
+                    Button("Выход") { NSApplication.shared.terminate(nil) }
                 }
-            } else {
-                Text("Шагов записано: \(appState.stepCount)")
-                    .font(.callout)
-            }
-
-            HStack {
-                Button("Новый сценарий") { appState.reset() }
-                Button("Выход") { NSApplication.shared.terminate(nil) }
             }
         }
     }
