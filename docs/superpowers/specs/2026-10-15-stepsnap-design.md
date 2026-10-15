@@ -60,10 +60,13 @@ Menu bar утилита. Иконка в строке меню, окна в до
 
 ### Форма приложения
 
-`MenuBarExtra` со стилем `.window` — кастомная вьюха в поповере, а не системное меню.
-Так проще показать чекбоксы, список окон, превью и кнопки.
+Строка меню: `NSStatusItem` + `NSPopover`, внутри поповера — SwiftUI через
+`NSHostingController`. Не `MenuBarExtra`: у него нет поддерживаемого способа закрыть поповер
+программно, а нам это нужно в момент старта записи. Поповер с запущенной записью — это
+потерянный первый клик (см. «Где живёт интерфейс во время записи»).
 
 `LSUIElement = true` в `Info.plist` (аксессуарное приложение: нет дока, нет главного окна).
+Bootstrap: `main.swift` с `NSApplication` и `AppDelegate`, политика `.accessory`.
 
 Иконка в строке меню: `SF Symbol` камеры. Идёт запись — иконка меняется (залитая/красная),
 чтобы видно было, что захват активен.
@@ -74,27 +77,49 @@ Menu bar утилита. Иконка в строке меню, окна в до
 ### Структура кода
 
 ```
-Package.swift
-build.sh                 сборка бинарника + сборка .app-бандла + ad-hoc подпись
+Package.swift            два таргета: библиотека StepSnapCore + исполняемый StepSnap
+build.sh                 swift build -c release + сборка .app-бандла + ad-hoc подпись
 run.sh                   build.sh && открыть .app  (стабильный путь бандла)
-Sources/StepSnap/
-  StepSnapApp.swift      @main, MenuBarExtra
-  AppState.swift         ObservableObject: фазы, список шагов, настройки
-  Settings.swift         UserDefaults-настройки
-  Permissions.swift      проверка и запрос прав
-  WindowEnumerator.swift список окон через CGWindowListCopyWindowInfo
-  ClickMonitor.swift     глобальный монитор кликов + определение окна под курсором
-  WindowCapture.swift    ScreenCaptureKit: снимок конкретного окна
-  StepStore.swift        шаги, запись PNG, манифест, восстановление, финализация
-  PDFRenderer.swift      сборка PDF через Core Graphics
+packaging/Info.plist     LSUIElement, bundle id, минимальная версия системы
+
+Sources/StepSnapCore/    библиотека: вся логика и вся математика, покрыта тестами
+  Settings.swift           настройки поверх UserDefaults
+  WindowInfo.swift         окно из CGWindowListCopyWindowInfo + фильтр пригодных
+  CoordinateMapper.swift   NSEvent-координаты → координаты Core Graphics
+  NormalizedPoint.swift    точка клика относительно рамки окна
+  ClickRouting.swift       решение «этот клик — шаг или нет»
+  PixelSize.swift          размер кадра в пикселях
+  FrameSource.swift        протокол источника кадров + CapturedFrame
+  ScenarioFolder.swift     санитизация имени и создание папки сценария
+  Manifest.swift           steps.json: модель, атомарная запись, чтение
+  RecordingSession.swift   шаги, PNG, очередь снимков, имена
+  PDFLayout.swift          раскладка страниц: где подпись, где картинка
+  PDFRenderer.swift        отрисовка PDF (Core Graphics + Core Text)
+  RecoveryScan.swift       поиск незавершённых сценариев
+
+Tests/StepSnapCoreTests/ тесты swift-testing
+
+Sources/StepSnap/        приложение: AppKit / SwiftUI / ScreenCaptureKit
+  main.swift               bootstrap NSApplication, политика .accessory
+  AppDelegate.swift        NSStatusItem, NSPopover, HUD, переходы фаз
+  AppState.swift           состояние фаз и текущей сессии
+  Permissions.swift        проверка и запрос «Записи экрана»
+  WindowEnumerator.swift   список окон системы
+  ClickMonitor.swift       глобальный монитор кликов
+  ScreenCaptureFrameSource.swift  реализация FrameSource на ScreenCaptureKit
+  RecordHUDPanel.swift     неактивирующая плавающая панель записи
   Views/
     MenuContentView.swift  содержимое поповера по фазам
     WindowPickerView.swift выбор окна
     StepListView.swift     список шагов с редактированием названий (режим «потом»)
     SettingsView.swift     настройки
     RecoveryView.swift     предложение дособрать отчёт после падения
-  RecordHUDPanel.swift   неактивирующая плавающая панель записи: счётчик, превью, поле названия, Стоп
+    HUDView.swift          содержимое HUD
 ```
+
+Разделение на библиотеку и приложение — ради тестов: вся логика, в которой можно ошибиться
+незаметно, лежит в `StepSnapCore` и проверяется `swift test`. Приложение — тонкая обвязка
+над AppKit, SwiftUI и ScreenCaptureKit.
 
 ### Фазы
 
@@ -204,16 +229,21 @@ HUD: неактивирующая плавающая панель в право�
 ### Шаги
 
 ```swift
-struct Step: Identifiable {
-  let id: UUID
-  let index: Int          // 1-based, порядок клика
-  var name: String        // может быть пустой
-  let takenAt: Date
-  let pointNormalized: CGPoint?  // точка клика, 0..1 относительно рамки окна на момент клика
-  let imageURL: URL
-  let pixelSize: CGSize
+struct ManifestStep: Codable {
+  var index: Int                  // 1-based, порядок клика
+  var name: String                // может быть пустой
+  var takenAt: Date
+  var pointNormalized: NormalizedPoint?  // точка клика, 0..1 относительно рамки окна на момент клика
+  var imageFileName: String?      // "step-001.png"; nil, если снимок не получился
+  var pixelWidth: Int
+  var pixelHeight: Int
+  var errorText: String?          // заполнено, если снимок не получился
 }
 ```
+
+`errorText` нужен, чтобы неудачный снимок не выглядел как удачный шаг без картинки: в PDF
+вместо картинки печатается пометка об ошибке, а шаг остаётся на своём месте с номером и
+названием.
 
 `pointNormalized` хранится в относительных координатах и именно на момент клика: если окно
 за время записи переехало или изменило размер, точка останется верной.
@@ -265,6 +295,8 @@ PDF. В режиме «потом» между «Стоп» и PDF появля�
 - Шапка на первой странице: название сценария, дата, количество шагов.
 - Дальше шаги по порядку: заголовок «Шаг 3. Название» (без названия — просто «Шаг 3») и
   снимок.
+- Шаг, у которого снимок не получился, печатается так же, но вместо картинки — пометка об
+  ошибке. Номер и название шага сохраняются, порядок не сбивается.
 - Снимок вписывается в ширину текстового блока (≈499 pt) и ограничен по высоте
   (≈620 pt), пропорции сохраняются.
 - Разрывы страниц: если снимок целиком не влезает в остаток страницы, начинаем новую.
@@ -330,8 +362,8 @@ PNG на диске сохраняются без отметки клика (с�
 `build.sh`:
 1. `swift build -c release`
 2. собрать `build/StepSnap.app/Contents/{MacOS,Resources}`
-3. положить `Info.plist` (`CFBundleIdentifier` = `local.stepsnap`, `LSUIElement` = true,
-   `NSHighResolutionCapable` = true, минимальная версия системы)
+3. положить `packaging/Info.plist` (`CFBundleIdentifier` = `local.stepsnap`, `LSUIElement` =
+   true, `NSHighResolutionCapable` = true, минимальная версия системы)
 4. `codesign --force --sign - build/StepSnap.app` (ad-hoc)
 
 `run.sh`: `build.sh` и `open build/StepSnap.app`.
