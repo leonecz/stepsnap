@@ -25,7 +25,11 @@ final class ScreenCaptureFrameSource: FrameSource {
         }
 
         let filter = SCContentFilter(desktopIndependentWindow: window)
-        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        // Масштаб берём у самого фильтра: окно может висеть на втором мониторе,
+        // и масштаб основного экрана к нему не относится.
+        let scale = filter.pointPixelScale > 0
+            ? CGFloat(filter.pointPixelScale)
+            : (NSScreen.main?.backingScaleFactor ?? 2)
         let size = PixelSize.fitting(rect: filter.contentRect, scale: scale)
 
         let configuration = SCStreamConfiguration()

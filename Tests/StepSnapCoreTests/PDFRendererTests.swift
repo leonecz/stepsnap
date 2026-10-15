@@ -100,8 +100,10 @@ import Testing
         try PDFRenderer.render(scenarioName: "Сценарий", startedAt: startedAt, steps: [step(index: 1)], setup: .a4, options: PDFRenderer.Options(), to: withMark)
         try PDFRenderer.render(scenarioName: "Сценарий", startedAt: startedAt, steps: [step(index: 1)], setup: .a4, options: options, to: withoutMark)
 
-        // Обе версии — валидные PDF с одинаковым числом страниц, отличаются только кружком.
+        // Обе версии — валидные PDF с одинаковым числом страниц, отличаются только кружком:
+        // без сравнения содержимого тест прошёл бы, даже если бы тумблер ничего не делал.
         #expect(CGPDFDocument(withMark as CFURL)?.numberOfPages == 1)
         #expect(CGPDFDocument(withoutMark as CFURL)?.numberOfPages == 1)
+        #expect(try Data(contentsOf: withMark) != (try Data(contentsOf: withoutMark)))
     }
 }

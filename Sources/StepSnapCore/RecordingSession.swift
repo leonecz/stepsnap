@@ -34,6 +34,7 @@ public final class RecordingSession {
     private let captureDelayMilliseconds: Int
     private let now: () -> Date
     private let sleep: (Int) async -> Void
+    private let fileManager: FileManager
     private var tail: Task<Void, Never>?
 
     public init(
@@ -55,6 +56,7 @@ public final class RecordingSession {
         self.captureDelayMilliseconds = captureDelayMilliseconds
         self.now = now
         self.sleep = sleep
+        self.fileManager = fileManager
         self.folder = try ScenarioFolder.create(
             at: outputFolder,
             named: ScenarioFolder.folderName(scenarioName: scenarioName, startedAt: startedAt),
@@ -175,7 +177,7 @@ public final class RecordingSession {
     }
 
     private func writeManifest() throws {
-        try ManifestFile.write(manifest, to: folder)
+        try ManifestFile.write(manifest, to: folder, fileManager: fileManager)
     }
 
     private func updateStep(index: Int, _ change: (inout ManifestStep) -> Void) {

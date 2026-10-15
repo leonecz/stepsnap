@@ -61,6 +61,7 @@ final class AppState {
 
     private let frameSource = ScreenCaptureFrameSource()
     private var clickMonitor: ClickMonitor?
+    private var watchdogTimer: Timer?
 
     /// Сколько снимков подряд без окна означают, что окно закрылось.
     private let windowNotFoundLimit = 5
@@ -89,6 +90,9 @@ final class AppState {
         errorMessage = nil
 
         guard Permissions.screenRecordingGranted() else {
+            // Запрос нужен не ради диалога, а чтобы система добавила приложение
+            // в список «Запись экрана»: без этого его там просто нет и выдать нечего.
+            Permissions.requestScreenRecording()
             errorMessage = "Нужно разрешение на запись экрана. Выдайте его и перезапустите приложение."
             phase = .pickingWindow
             return
@@ -122,6 +126,8 @@ final class AppState {
             }
             monitor.start()
             clickMonitor = monitor
+
+            startWatchdog()
 
             phase = .recording
         } catch {
@@ -166,6 +172,11 @@ final class AppState {
     }
 
     private func stop(reason: StopReason) {
+        // Кнопок «Стоп» две (панель записи и поповер), плюс сюда же приходит сторож:
+        // без этой проверки отчёт мог бы собираться дважды и одновременно.
+        guard phase == .recording else { return }
+
+        stopWatchdog()
         clickMonitor?.stop()
         clickMonitor = nil
         stopReason = reason
@@ -173,6 +184,12 @@ final class AppState {
         guard let session else {
             phase = .idle
             return
+        }
+
+        // Название, набранное для последнего шага, иначе потерялось бы: закрепить его
+        // обычно успевает только следующий клик, а после «Стоп» кликов уже не будет.
+        if showsNamingField {
+            naming?.commitFieldText()
         }
 
         Task { @MainActor in
@@ -264,6 +281,7 @@ final class AppState {
     }
 
     func reset() {
+        stopWatchdog()
         clickMonitor?.stop()
         clickMonitor = nil
         session = nil
@@ -329,5 +347,37 @@ final class AppState {
         guard let session else { return }
         stepCount = session.steps.count
         latestImage = session.latestIndex.flatMap { session.images[$0] }
+    }
+
+    // MARK: - Сторож целевого окна
+
+    private func startWatchdog() {
+        stopWatchdog()
+        watchdogTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.checkTargetWindow()
+            }
+        }
+    }
+
+    private func stopWatchdog() {
+        watchdogTimer?.invalidate()
+        watchdogTimer = nil
+    }
+
+    /// Раз в секунду проверяем, что целевое окно ещё существует: без этого закрытое
+    /// окно осталось бы незамеченным, потому что кликов в него больше не происходит.
+    private func checkTargetWindow() {
+        guard phase == .recording, let session else { return }
+
+        let shouldStop = RecordingWatchdog.shouldStop(
+            windowID: session.windowID,
+            windows: WindowEnumerator.allWindows(),
+            consecutiveWindowNotFoundCount: session.consecutiveWindowNotFoundCount
+        )
+
+        if shouldStop {
+            stopBecauseTargetWindowClosed()
+        }
     }
 }
