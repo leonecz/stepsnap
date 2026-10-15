@@ -1,9 +1,11 @@
 import AppKit
+import StepSnapCore
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let popover = NSPopover()
+    let settingsStore = SettingsStore()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let icon = NSImage(systemSymbolName: "camera", accessibilityDescription: "StepSnap")
@@ -13,7 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.action = #selector(togglePopover(_:))
 
         popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: MenuContentView())
+        popover.contentViewController = NSHostingController(rootView: MenuContentView(store: settingsStore))
     }
 
     @objc func togglePopover(_ sender: Any?) {
