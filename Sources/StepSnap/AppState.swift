@@ -53,6 +53,9 @@ final class AppState {
     var pendingStepList = false
     var stepNames: [Int: String] = [:]
 
+    /// Найденные при запуске незавершённые сценарии.
+    var unfinishedScenarios: [UnfinishedScenario] = []
+
     /// AppKit-обвязка подписывается сюда: показать HUD, закрыть поповер, сменить иконку.
     var onPhaseChanged: ((Phase) -> Void)?
 
@@ -221,6 +224,43 @@ final class AppState {
     func saveWithoutNames() {
         _ = saveReport()
         pendingStepList = false
+    }
+
+    // MARK: - Восстановление
+
+    func scanForUnfinished() {
+        unfinishedScenarios = RecoveryScan.unfinished(in: settingsStore.current.outputFolder)
+    }
+
+    func recover(_ scenario: UnfinishedScenario) {
+        let steps = ReportSteps.from(manifest: scenario.manifest, folder: scenario.folder)
+
+        var options = PDFRenderer.Options()
+        options.markClickPoint = settingsStore.current.markClickPoint
+
+        let url = scenario.folder.appendingPathComponent(StepFileNames.reportFileName)
+
+        do {
+            try PDFRenderer.render(
+                scenarioName: scenario.manifest.scenarioName,
+                startedAt: scenario.manifest.startedAt,
+                steps: steps,
+                setup: .a4,
+                options: options,
+                to: url
+            )
+            lastReportURL = url
+            stepCount = steps.count
+            stopReason = .stoppedByUser
+            unfinishedScenarios.removeAll { $0.folder == scenario.folder }
+            phase = .finished
+        } catch {
+            errorMessage = "Не удалось собрать отчёт"
+        }
+    }
+
+    func dismiss(_ scenario: UnfinishedScenario) {
+        unfinishedScenarios.removeAll { $0.folder == scenario.folder }
     }
 
     func reset() {

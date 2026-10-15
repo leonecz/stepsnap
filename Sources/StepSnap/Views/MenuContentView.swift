@@ -44,6 +44,10 @@ struct MenuContentView: View {
             Text("StepSnap")
                 .font(.headline)
 
+            if !appState.unfinishedScenarios.isEmpty {
+                RecoveryView(appState: appState)
+            }
+
             HStack {
                 Button("Новый сценарий") { appState.beginScenario() }
                 Button("Настройки") { showsSettings = true }

@@ -33,6 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appState.onHUDNeedsResize = { [weak self] in
             self?.hud.resizeToFit()
         }
+
+        appState.scanForUnfinished()
     }
 
     @objc func togglePopover(_ sender: Any?) {
