@@ -37,7 +37,7 @@ struct WindowPickerView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 240)
+                .frame(height: 240)
             }
         }
         .onAppear { refresh() }

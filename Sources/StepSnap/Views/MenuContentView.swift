@@ -44,6 +44,6 @@ struct MenuContentView: View {
             }
         }
         .padding(16)
-        .frame(width: showsSettings ? 360 : 320, alignment: .leading)
+        .frame(width: 360, alignment: .leading)
     }
 }
