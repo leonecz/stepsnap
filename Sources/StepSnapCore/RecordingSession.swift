@@ -26,6 +26,10 @@ public final class RecordingSession {
 
     public var latestIndex: Int? { steps.last?.index }
 
+    /// Пауза записи: клики не превращаются в шаги, снимки не делаются.
+    /// Уже собранное остаётся на месте, нумерация после снятия паузы продолжается.
+    public var isPaused = false
+
     public var manifest: Manifest {
         Manifest(scenarioName: scenarioName, startedAt: startedAt, steps: steps)
     }
@@ -66,11 +70,14 @@ public final class RecordingSession {
         try writeManifest()
     }
 
-    /// Записывает шаг и ставит снимок в очередь. Возвращает номер шага.
+    /// Записывает шаг и ставит снимок в очередь. Возвращает номер шага,
+    /// либо `nil`, если запись на паузе и клик проигнорирован.
     ///
     /// Манифест пишется сразу, до снимка: если приложение упадёт, шаг не пропадёт.
     @discardableResult
-    public func noteClick(at point: CGPoint, windowBounds: CGRect) -> Int {
+    public func noteClick(at point: CGPoint, windowBounds: CGRect) -> Int? {
+        guard !isPaused else { return nil }
+
         let index = steps.count + 1
 
         steps.append(

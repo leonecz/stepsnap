@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hud = RecordHUDPanel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        setRecordingIndicator(false)
+        updateStatusIcon()
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePopover(_:))
 
@@ -32,6 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         appState.onHUDNeedsResize = { [weak self] in
             self?.hud.resizeToFit()
+        }
+        appState.onPauseChanged = { [weak self] in
+            self?.updateStatusIcon()
         }
 
         appState.scanForUnfinished()
@@ -62,20 +65,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Поповер закрывается: открытый поверх эмулятора, он съел бы первый клик.
             closePopover()
             hud.show(appState: appState)
-            setRecordingIndicator(true)
         case .finished:
             hud.hide()
-            setRecordingIndicator(false)
             showPopover()
         case .idle, .naming, .pickingWindow:
             hud.hide()
-            setRecordingIndicator(false)
         }
+
+        updateStatusIcon()
     }
 
-    private func setRecordingIndicator(_ recording: Bool) {
-        let symbol = recording ? "camera.fill" : "camera"
-        let icon = NSImage(systemSymbolName: symbol, accessibilityDescription: "StepSnap")
+    /// Иконка в строке меню: запись, пауза, покой.
+    private func updateStatusIcon() {
+        let symbol: String
+        if appState.isPaused {
+            symbol = "pause.circle"
+        } else if appState.phase == .recording {
+            symbol = "camera.fill"
+        } else {
+            symbol = "camera"
+        }
+
+        let description = appState.isPaused ? "StepSnap: запись на паузе" : "StepSnap"
+        let icon = NSImage(systemSymbolName: symbol, accessibilityDescription: description)
         icon?.isTemplate = true
         statusItem.button?.image = icon
     }

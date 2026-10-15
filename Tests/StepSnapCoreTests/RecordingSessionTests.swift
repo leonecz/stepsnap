@@ -135,8 +135,7 @@ import Testing
         #expect(session.latestIndex == 1)
     }
 
-    @Test func manifestReflectsEveryClickImmediately() async throws {
-        let source = FakeFrameSource(image: ImageFixture.makeImage(width: 2, height: 2))
+    @Test func manifestReflectsEveryClickImmediately() async throws {        let source = FakeFrameSource(image: ImageFixture.makeImage(width: 2, height: 2))
         let (session, outputFolder) = try makeSession(source: source)
         defer { try? FileManager.default.removeItem(at: outputFolder) }
 
@@ -148,6 +147,34 @@ import Testing
         #expect(onDisk.scenarioName == "Проверка входа")
 
         await session.waitForPendingCaptures()
+    }
+
+    @Test func pausedClicksDoNotCreateSteps() async throws {
+        let source = FakeFrameSource(image: ImageFixture.makeImage(width: 2, height: 2))
+        let (session, outputFolder) = try makeSession(source: source)
+        defer { try? FileManager.default.removeItem(at: outputFolder) }
+
+        session.noteClick(at: CGPoint(x: 1, y: 1), windowBounds: fullBounds)
+        await session.waitForPendingCaptures()
+        #expect(session.steps.count == 1)
+
+        // На паузе клик не создаёт шаг, не делает снимок и не трогает манифест.
+        session.isPaused = true
+        let ignored = session.noteClick(at: CGPoint(x: 2, y: 2), windowBounds: fullBounds)
+        await session.waitForPendingCaptures()
+
+        #expect(ignored == nil)
+        #expect(session.steps.count == 1)
+        #expect(source.captureCount == 1)
+        #expect(try ManifestFile.read(from: session.folder).steps.count == 1)
+
+        // После снятия паузы нумерация продолжается без разрыва.
+        session.isPaused = false
+        #expect(session.noteClick(at: CGPoint(x: 3, y: 3), windowBounds: fullBounds) == 2)
+        await session.waitForPendingCaptures()
+
+        #expect(session.steps.map(\.index) == [1, 2])
+        #expect(source.captureCount == 2)
     }
 }
 

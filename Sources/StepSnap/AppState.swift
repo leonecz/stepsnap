@@ -49,6 +49,17 @@ final class AppState {
     /// Панель записи должна пересчитать размер (появляется или исчезает поле названия).
     var onHUDNeedsResize: (() -> Void)?
 
+    /// Запись на паузе: клики в эмуляторе в отчёт не идут.
+    var isPaused = false {
+        didSet {
+            if isPaused != oldValue {
+                onPauseChanged?()
+            }
+        }
+    }
+
+    var onPauseChanged: (() -> Void)?
+
     /// Режим «потом»: после остановки сначала подписываем шаги, потом сохраняем.
     var pendingStepList = false
     var stepNames: [Int: String] = [:]
@@ -115,6 +126,7 @@ final class AppState {
             lastReportURL = nil
             pendingStepList = false
             stepNames = [:]
+            isPaused = false
 
             askNameForEachStep = settings.askNameForEachStep
             namingToggleVisible = settings.namingMode == .immediate
@@ -144,6 +156,8 @@ final class AppState {
 
     private func handleClick(at point: CGPoint, windowBounds: CGRect) {
         guard phase == .recording, let session else { return }
+        // На паузе клик не делает ничего — даже поле названия не трогаем.
+        guard !session.isPaused else { return }
 
         // Набранное название относится к предыдущему шагу — закрепляем его до создания нового.
         if showsNamingField {
@@ -165,6 +179,19 @@ final class AppState {
 
     func stopRecording() {
         stop(reason: .stoppedByUser)
+    }
+
+    /// Пауза: клики в эмуляторе перестают попадать в отчёт, всё собранное остаётся.
+    func togglePause() {
+        guard phase == .recording, let session else { return }
+
+        if !session.isPaused, showsNamingField {
+            // На паузе кликов не будет, и закрепить набранное станет нечему — делаем это сейчас.
+            naming?.commitFieldText()
+        }
+
+        session.isPaused.toggle()
+        isPaused = session.isPaused
     }
 
     private func stopBecauseTargetWindowClosed() {
@@ -209,8 +236,7 @@ final class AppState {
         }
     }
 
-    func setAskNameForEachStep(_ value: Bool) {
-        askNameForEachStep = value
+    func setAskNameForEachStep(_ value: Bool) {        askNameForEachStep = value
 
         var settings = settingsStore.current
         settings.askNameForEachStep = value
@@ -295,6 +321,7 @@ final class AppState {
         stopReason = .stoppedByUser
         pendingStepList = false
         stepNames = [:]
+        isPaused = false
         phase = .idle
     }
 

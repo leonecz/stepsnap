@@ -15,6 +15,11 @@ struct HUDView: View {
                 .font(.callout)
                 .monospacedDigit()
 
+            // Строка состояния: заметный признак паузы и постоянная высота панели.
+            Text(appState.isPaused ? "Пауза — клики не записываются" : "Идёт запись")
+                .font(.caption)
+                .foregroundStyle(appState.isPaused ? Color.orange : Color.secondary)
+
             if let image = appState.latestImage {
                 Image(decorative: image, scale: 1)
                     .resizable()
@@ -43,8 +48,13 @@ struct HUDView: View {
                 }
             }
 
-            Button("Стоп") {
-                appState.stopRecording()
+            HStack {
+                Button(appState.isPaused ? "Продолжить" : "Пауза") {
+                    appState.togglePause()
+                }
+                Button("Стоп") {
+                    appState.stopRecording()
+                }
             }
         }
         .padding(12)
