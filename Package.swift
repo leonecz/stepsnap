@@ -5,7 +5,9 @@ let package = Package(
     name: "StepSnap",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "StepSnap", path: "Sources/StepSnap"),
+        .target(name: "StepSnapCore", path: "Sources/StepSnapCore"),
+        .executableTarget(name: "StepSnap", dependencies: ["StepSnapCore"], path: "Sources/StepSnap"),
+        .testTarget(name: "StepSnapCoreTests", dependencies: ["StepSnapCore"], path: "Tests/StepSnapCoreTests"),
     ],
     swiftLanguageModes: [.v5]
 )
