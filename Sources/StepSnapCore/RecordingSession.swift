@@ -19,6 +19,8 @@ public final class RecordingSession {
     public private(set) var steps: [ManifestStep] = []
     /// Снятые кадры по номеру шага — чтобы собрать PDF, не перечитывая файлы.
     public private(set) var images: [Int: CGImage] = [:]
+    /// Эталоны «ожидаемый результат» по номеру шага.
+    public private(set) var expectedImages: [Int: CGImage] = [:]
     public private(set) var lastCaptureError: CaptureError?
     /// Сколько снимков подряд не нашло окно. По этому счётчику приложение понимает,
     /// что целевое окно закрылось.
@@ -40,6 +42,10 @@ public final class RecordingSession {
     private let sleep: (Int) async -> Void
     private let fileManager: FileManager
     private var tail: Task<Void, Never>?
+    /// Метка последнего клика для каждого номера шага. Нужна, чтобы снимок,
+    /// поставленный в очередь до удаления шага, не записался поверх нового шага
+    /// с тем же номером.
+    private var captureTokens: [Int: UUID] = [:]
 
     public init(
         scenarioName: String,
@@ -79,6 +85,8 @@ public final class RecordingSession {
         guard !isPaused else { return nil }
 
         let index = steps.count + 1
+        let token = UUID()
+        captureTokens[index] = token
 
         steps.append(
             ManifestStep(
@@ -94,12 +102,54 @@ public final class RecordingSession {
         )
         try? writeManifest()
 
-        enqueueCapture(for: index)
+        enqueueCapture(for: index, token: token)
         return index
     }
 
     public func nameStep(at index: Int, with name: String) {
         updateStep(index: index) { $0.name = name }
+        try? writeManifest()
+    }
+
+    /// Прикладывает эталон к шагу: копирует снимок в папку сценария и пишет манифест.
+    public func attachExpectedResult(_ image: CGImage, toStep index: Int) throws {
+        guard steps.contains(where: { $0.index == index }) else { return }
+
+        let fileName = StepFileNames.expectedResultFileName(forIndex: index)
+        try writePNG(image, named: fileName)
+
+        expectedImages[index] = image
+        updateStep(index: index) { $0.expectedResultFileName = fileName }
+        try writeManifest()
+    }
+
+    public func removeExpectedResult(fromStep index: Int) {
+        guard steps.contains(where: { $0.index == index }) else { return }
+
+        let url = folder.appendingPathComponent(StepFileNames.expectedResultFileName(forIndex: index))
+        try? fileManager.removeItem(at: url)
+        expectedImages.removeValue(forKey: index)
+        updateStep(index: index) { $0.expectedResultFileName = nil }
+        try? writeManifest()
+    }
+
+    /// Удаляет последний шаг вместе со снимком и эталоном.
+    /// Нумерация не сдвигается: следующий клик займёт освободившийся номер.
+    public func deleteLastStep() {
+        guard let last = steps.last else { return }
+
+        steps.removeLast()
+        images.removeValue(forKey: last.index)
+        expectedImages.removeValue(forKey: last.index)
+        captureTokens.removeValue(forKey: last.index)
+
+        for name in [
+            StepFileNames.imageFileName(forIndex: last.index),
+            StepFileNames.expectedResultFileName(forIndex: last.index),
+        ] {
+            try? fileManager.removeItem(at: folder.appendingPathComponent(name))
+        }
+
         try? writeManifest()
     }
 
@@ -115,7 +165,7 @@ public final class RecordingSession {
 
     // MARK: - Очередь снимков
 
-    private func enqueueCapture(for index: Int) {
+    private func enqueueCapture(for index: Int, token: UUID) {
         let needsDelay = (tail == nil)
         let previous = tail
         let delay = captureDelayMilliseconds
@@ -128,14 +178,21 @@ public final class RecordingSession {
             if needsDelay, delay > 0 {
                 await self.sleep(delay)
             }
-            await self.performCapture(for: index, windowID: windowID)
+            await self.performCapture(for: index, token: token, windowID: windowID)
         }
     }
 
-    private func performCapture(for index: Int, windowID: UInt32) async {
+    private func performCapture(for index: Int, token: UUID, windowID: UInt32) async {
+        // Шаг успели удалить, пока снимок ждал очереди.
+        guard captureTokens[index] == token else { return }
+
         do {
             let frame = try await source.capture(windowID: windowID)
-            try writePNG(frame.image, forIndex: index)
+
+            // Шаг могли удалить и за время самого снимка.
+            guard captureTokens[index] == token else { return }
+
+            try writePNG(frame.image, named: StepFileNames.imageFileName(forIndex: index))
 
             images[index] = frame.image
             updateStep(index: index) { step in
@@ -164,8 +221,8 @@ public final class RecordingSession {
 
     // MARK: - Файлы
 
-    private func writePNG(_ image: CGImage, forIndex index: Int) throws {
-        let url = folder.appendingPathComponent(StepFileNames.imageFileName(forIndex: index))
+    private func writePNG(_ image: CGImage, named name: String) throws {
+        let url = folder.appendingPathComponent(name)
 
         guard let destination = CGImageDestinationCreateWithURL(
             url as CFURL,

@@ -220,4 +220,34 @@ import UniformTypeIdentifiers
         #expect(steps[0].name == "Нажать кнопку")
         #expect(steps[0].pointNormalized == NormalizedPoint(x: 0.1, y: 0.2))
     }
+
+    @Test func loadsExpectedResultImageFromItsFile() throws {
+        let folder = makeTempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try writePNG(width: 10, height: 10, to: folder.appendingPathComponent("step-001.png"))
+        try writePNG(width: 30, height: 20, to: folder.appendingPathComponent("expected-001.png"))
+
+        let manifest = Manifest(
+            scenarioName: "Сценарий",
+            startedAt: Date(),
+            steps: [
+                ManifestStep(
+                    index: 1,
+                    name: "Нажать кнопку",
+                    takenAt: Date(),
+                    pointNormalized: nil,
+                    imageFileName: "step-001.png",
+                    pixelWidth: 10,
+                    pixelHeight: 10,
+                    errorText: nil,
+                    expectedResultFileName: "expected-001.png"
+                ),
+            ]
+        )
+
+        let steps = ReportSteps.from(manifest: manifest, folder: folder)
+
+        #expect(steps[0].expectedResultImage?.width == 30)
+        #expect(steps[0].expectedResultImage?.height == 20)
+    }
 }

@@ -149,6 +149,105 @@ import Testing
         await session.waitForPendingCaptures()
     }
 
+    @Test func attachingExpectedResultWritesFileAndManifest() async throws {
+        let source = FakeFrameSource(image: ImageFixture.makeImage(width: 2, height: 2))
+        let (session, outputFolder) = try makeSession(source: source)
+        defer { try? FileManager.default.removeItem(at: outputFolder) }
+
+        session.noteClick(at: CGPoint(x: 1, y: 1), windowBounds: fullBounds)
+        await session.waitForPendingCaptures()
+
+        let expected = ImageFixture.makeImage(width: 6, height: 4)
+        try session.attachExpectedResult(expected, toStep: 1)
+
+        #expect(session.steps[0].expectedResultFileName == "expected-001.png")
+        #expect(session.expectedImages[1]?.width == 6)
+        #expect(session.expectedImages[1]?.height == 4)
+
+        let png = session.folder.appendingPathComponent("expected-001.png")
+        #expect(FileManager.default.fileExists(atPath: png.path))
+
+        let manifest = try ManifestFile.read(from: session.folder)
+        #expect(manifest.steps[0].expectedResultFileName == "expected-001.png")
+    }
+
+    @Test func newExpectedResultReplacesPreviousOne() async throws {
+        let source = FakeFrameSource(image: ImageFixture.makeImage(width: 2, height: 2))
+        let (session, outputFolder) = try makeSession(source: source)
+        defer { try? FileManager.default.removeItem(at: outputFolder) }
+
+        session.noteClick(at: CGPoint(x: 1, y: 1), windowBounds: fullBounds)
+        await session.waitForPendingCaptures()
+
+        try session.attachExpectedResult(ImageFixture.makeImage(width: 6, height: 4), toStep: 1)
+        try session.attachExpectedResult(ImageFixture.makeImage(width: 9, height: 3), toStep: 1)
+
+        #expect(session.expectedImages[1]?.width == 9)
+
+        let manifest = try ManifestFile.read(from: session.folder)
+        #expect(manifest.steps[0].expectedResultFileName == "expected-001.png")
+    }
+
+    @Test func removingExpectedResultDeletesFileAndManifestField() async throws {
+        let source = FakeFrameSource(image: ImageFixture.makeImage(width: 2, height: 2))
+        let (session, outputFolder) = try makeSession(source: source)
+        defer { try? FileManager.default.removeItem(at: outputFolder) }
+
+        session.noteClick(at: CGPoint(x: 1, y: 1), windowBounds: fullBounds)
+        await session.waitForPendingCaptures()
+        try session.attachExpectedResult(ImageFixture.makeImage(width: 6, height: 4), toStep: 1)
+
+        session.removeExpectedResult(fromStep: 1)
+
+        let png = session.folder.appendingPathComponent("expected-001.png")
+        #expect(!FileManager.default.fileExists(atPath: png.path))
+        #expect(session.expectedImages[1] == nil)
+        #expect(session.steps[0].expectedResultFileName == nil)
+        #expect(try ManifestFile.read(from: session.folder).steps[0].expectedResultFileName == nil)
+    }
+
+    @Test func deletingLastStepRemovesItWithItsFiles() async throws {
+        let source = FakeFrameSource(image: ImageFixture.makeImage(width: 2, height: 2))
+        let (session, outputFolder) = try makeSession(source: source)
+        defer { try? FileManager.default.removeItem(at: outputFolder) }
+
+        session.noteClick(at: CGPoint(x: 1, y: 1), windowBounds: fullBounds)
+        await session.waitForPendingCaptures()
+        session.noteClick(at: CGPoint(x: 2, y: 2), windowBounds: fullBounds)
+        await session.waitForPendingCaptures()
+        try session.attachExpectedResult(ImageFixture.makeImage(width: 6, height: 4), toStep: 2)
+
+        session.deleteLastStep()
+
+        #expect(session.steps.map(\.index) == [1])
+        #expect(session.expectedImages[2] == nil)
+        #expect(session.images[2] == nil)
+
+        for name in ["step-002.png", "expected-002.png"] {
+            #expect(!FileManager.default.fileExists(atPath: session.folder.appendingPathComponent(name).path))
+        }
+        #expect(try ManifestFile.read(from: session.folder).steps.map(\.index) == [1])
+
+        // Нумерация продолжается с того же места.
+        #expect(session.noteClick(at: CGPoint(x: 3, y: 3), windowBounds: fullBounds) == 2)
+        await session.waitForPendingCaptures()
+    }
+
+    @Test func deletingLastStepWhileCaptureIsPendingLeavesNoFiles() async throws {
+        let source = FakeFrameSource(image: ImageFixture.makeImage(width: 2, height: 2), delay: .milliseconds(50))
+        let (session, outputFolder) = try makeSession(source: source)
+        defer { try? FileManager.default.removeItem(at: outputFolder) }
+
+        session.noteClick(at: CGPoint(x: 1, y: 1), windowBounds: fullBounds)
+        session.deleteLastStep()
+        await session.waitForPendingCaptures()
+
+        #expect(session.steps.isEmpty)
+        #expect(session.images.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: session.folder.appendingPathComponent("step-001.png").path))
+        #expect(try ManifestFile.read(from: session.folder).steps.isEmpty)
+    }
+
     @Test func pausedClicksDoNotCreateSteps() async throws {
         let source = FakeFrameSource(image: ImageFixture.makeImage(width: 2, height: 2))
         let (session, outputFolder) = try makeSession(source: source)

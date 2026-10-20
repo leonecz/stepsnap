@@ -64,6 +64,14 @@ final class AppState {
     var pendingStepList = false
     var stepNames: [Int: String] = [:]
 
+    /// Редактор последнего шага в панели записи.
+    var editingStepIndex: Int?
+    var editingStepName = ""
+
+    /// Счётчик изменений эталонов. RecordingSession не наблюдаемый, а панель и список
+    /// должны перерисоваться после вставки или удаления ожидаемого результата.
+    private(set) var expectedResultsVersion = 0
+
     /// Найденные при запуске незавершённые сценарии.
     var unfinishedScenarios: [UnfinishedScenario] = []
 
@@ -126,6 +134,8 @@ final class AppState {
             lastReportURL = nil
             pendingStepList = false
             stepNames = [:]
+            editingStepIndex = nil
+            editingStepName = ""
             isPaused = false
 
             askNameForEachStep = settings.askNameForEachStep
@@ -162,6 +172,11 @@ final class AppState {
         // Набранное название относится к предыдущему шагу — закрепляем его до создания нового.
         if showsNamingField {
             naming?.clickRecorded()
+        }
+        // Открытый редактор тоже относится к предыдущему шагу: закрываем его,
+        // чтобы следующая правка не применилась не к тому шагу.
+        if editingStepIndex != nil {
+            commitEditingStep()
         }
 
         session.noteClick(at: point, windowBounds: windowBounds)
@@ -223,9 +238,10 @@ final class AppState {
             await session.waitForPendingCaptures()
             refreshFromSession()
 
-            // В режиме «потом» сначала даём подписать шаги. Если окно закрылось — сохраняем
-            // сразу, чтобы человек не остался без отчёта.
-            if settingsStore.current.namingMode == .afterStop, reason == .stoppedByUser {
+            // После «Стоп» всегда показываем список шагов: там можно дописать название
+            // и приложить ожидаемый результат. Если окно закрылось — сохраняем сразу,
+            // чтобы человек не остался без отчёта.
+            if reason == .stoppedByUser {
                 prepareStepList()
                 pendingStepList = true
             } else {
@@ -267,6 +283,127 @@ final class AppState {
     func saveWithoutNames() {
         _ = saveReport()
         pendingStepList = false
+    }
+
+    // MARK: - Последний шаг
+
+    /// Последний записанный шаг — тот, к которому относятся кнопки в панели.
+    var lastStepIndex: Int? {
+        session?.latestIndex
+    }
+
+    var lastStepExpectedImage: CGImage? {
+        _ = expectedResultsVersion
+        return lastStepIndex.flatMap { session?.expectedImages[$0] }
+    }
+
+    func expectedImage(forStep index: Int) -> CGImage? {
+        _ = expectedResultsVersion
+        return session?.expectedImages[index]
+    }
+
+    func beginEditingLastStep() {
+        guard let session, let index = session.latestIndex else { return }
+
+        // Незакреплённое название из панели относится к этому же шагу:
+        // сначала сохраняем его, иначе оно перезапишет правку следующим кликом.
+        if showsNamingField {
+            naming?.commitFieldText()
+        }
+
+        editingStepIndex = index
+        editingStepName = session.steps.first(where: { $0.index == index })?.name ?? ""
+        onHUDNeedsResize?()
+    }
+
+    func commitEditingStep() {
+        guard let index = editingStepIndex else { return }
+
+        session?.nameStep(
+            at: index,
+            with: editingStepName.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        editingStepIndex = nil
+        editingStepName = ""
+        onHUDNeedsResize?()
+    }
+
+    func cancelEditingStep() {
+        editingStepIndex = nil
+        editingStepName = ""
+        onHUDNeedsResize?()
+    }
+
+    /// Удаляет последний шаг вместе со снимком и ожидаемым результатом. Без подтверждения.
+    func deleteLastStep() {
+        guard let session, !session.steps.isEmpty else { return }
+
+        if editingStepIndex == session.latestIndex {
+            editingStepIndex = nil
+            editingStepName = ""
+        }
+        // Набранное, но не закреплённое название относилось к удалённому шагу.
+        if showsNamingField {
+            naming?.updateFieldText("")
+        }
+
+        session.deleteLastStep()
+        expectedResultsVersion += 1
+        refreshFromSession()
+
+        if pendingStepList {
+            prepareStepList()
+        }
+        onHUDNeedsResize?()
+    }
+
+    func attachExpectedResult(_ image: CGImage, toStep index: Int) {
+        guard let session else { return }
+
+        do {
+            try session.attachExpectedResult(image, toStep: index)
+            expectedResultsVersion += 1
+            errorMessage = nil
+            onHUDNeedsResize?()
+        } catch {
+            errorMessage = "Не удалось сохранить ожидаемый результат"
+        }
+    }
+
+    func removeExpectedResult(fromStep index: Int) {
+        guard let session else { return }
+
+        session.removeExpectedResult(fromStep: index)
+        expectedResultsVersion += 1
+        onHUDNeedsResize?()
+    }
+
+    /// Выбор файла: тот же путь, что и перетаскивание, но без мыши.
+    func chooseExpectedResult(forStep index: Int) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.message = "Выберите снимок ожидаемого результата"
+        panel.prompt = "Приложить"
+
+        // Шаги записываются по кликам в целевое окно. Чтобы после выбора файла
+        // клик по эмулятору не стал лишним шагом, возвращаем фокус туда, откуда пришли.
+        let previousApp = NSWorkspace.shared.frontmostApplication
+        NSApp.activate()
+        let response = panel.runModal()
+        if previousApp != NSRunningApplication.current {
+            previousApp?.activate()
+        }
+
+        guard response == .OK, let url = panel.url else { return }
+
+        guard let image = NSImage(contentsOf: url)?.stepSnapCGImage() else {
+            errorMessage = "Не удалось прочитать изображение"
+            return
+        }
+
+        attachExpectedResult(image, toStep: index)
     }
 
     // MARK: - Восстановление
@@ -321,6 +458,8 @@ final class AppState {
         stopReason = .stoppedByUser
         pendingStepList = false
         stepNames = [:]
+        editingStepIndex = nil
+        editingStepName = ""
         isPaused = false
         phase = .idle
     }
@@ -335,7 +474,8 @@ final class AppState {
                 name: step.name,
                 image: session.images[step.index],
                 pointNormalized: step.pointNormalized,
-                errorText: step.errorText
+                errorText: step.errorText,
+                expectedResultImage: session.expectedImages[step.index]
             )
         }
 
@@ -372,8 +512,18 @@ final class AppState {
 
     private func refreshFromSession() {
         guard let session else { return }
+
+        let hadImage = latestImage != nil
+        let hadSteps = stepCount > 0
+
         stepCount = session.steps.count
         latestImage = session.latestIndex.flatMap { session.images[$0] }
+
+        // Превью и блок ожидаемого результата появляются и исчезают — панели
+        // нужно подстроить высоту, иначе содержимое обрежется.
+        if hadImage != (latestImage != nil) || hadSteps != (stepCount > 0) {
+            onHUDNeedsResize?()
+        }
     }
 
     // MARK: - Сторож целевого окна

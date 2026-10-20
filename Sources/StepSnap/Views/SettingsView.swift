@@ -32,7 +32,7 @@ struct SettingsView: View {
 
             Picker("Подпись шагов", selection: namingModeBinding) {
                 Text("Сразу после клика").tag(NamingMode.immediate)
-                Text("Потом, списком").tag(NamingMode.afterStop)
+                Text("Только в конце").tag(NamingMode.afterStop)
             }
             .pickerStyle(.menu)
 

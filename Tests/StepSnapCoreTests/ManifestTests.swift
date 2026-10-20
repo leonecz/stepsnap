@@ -78,4 +78,53 @@ import Testing
         #expect(StepFileNames.imageFileName(forIndex: 1234) == "step-1234.png")
         #expect(StepFileNames.reportFileName == "отчёт.pdf")
     }
+
+    @Test func expectedResultFileNamesArePadded() {
+        #expect(StepFileNames.expectedResultFileName(forIndex: 1) == "expected-001.png")
+        #expect(StepFileNames.expectedResultFileName(forIndex: 42) == "expected-042.png")
+    }
+
+    @Test func manifestReadsFileWrittenBeforeExpectedResultsExisted() throws {
+        let folder = makeTempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let legacy = """
+        {
+          "scenarioName": "Старый сценарий",
+          "startedAt": "2026-10-15T10:00:00Z",
+          "steps": [
+            {
+              "index": 1,
+              "name": "Открыть меню",
+              "takenAt": "2026-10-15T10:00:01Z",
+              "pointNormalized": { "x": 0.5, "y": 0.5 },
+              "imageFileName": "step-001.png",
+              "pixelWidth": 10,
+              "pixelHeight": 20
+            }
+          ]
+        }
+        """
+        try Data(legacy.utf8).write(to: ManifestFile.url(in: folder))
+
+        let manifest = try ManifestFile.read(from: folder)
+
+        #expect(manifest.steps.count == 1)
+        #expect(manifest.steps[0].name == "Открыть меню")
+        #expect(manifest.steps[0].expectedResultFileName == nil)
+    }
+
+    @Test func manifestKeepsExpectedResultFileName() throws {
+        let folder = makeTempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        var manifest = sampleManifest()
+        manifest.steps[0].expectedResultFileName = "expected-001.png"
+
+        try ManifestFile.write(manifest, to: folder)
+        let read = try ManifestFile.read(from: folder)
+
+        #expect(read.steps[0].expectedResultFileName == "expected-001.png")
+        #expect(read.steps[1].expectedResultFileName == nil)
+    }
 }

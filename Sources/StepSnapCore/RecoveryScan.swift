@@ -53,13 +53,17 @@ public enum ReportSteps {
     public static func from(manifest: Manifest, folder: URL) -> [ReportStep] {
         manifest.steps.map { step in
             let image = step.imageFileName.flatMap { loadImage(at: folder.appendingPathComponent($0)) }
+            let expectedResult = step.expectedResultFileName.flatMap {
+                loadImage(at: folder.appendingPathComponent($0))
+            }
 
             return ReportStep(
                 index: step.index,
                 name: step.name,
                 image: image,
                 pointNormalized: step.pointNormalized,
-                errorText: image == nil ? (step.errorText ?? "Снимок не найден") : step.errorText
+                errorText: image == nil ? (step.errorText ?? "Снимок не найден") : step.errorText,
+                expectedResultImage: expectedResult
             )
         }
     }

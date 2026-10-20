@@ -87,6 +87,24 @@ import Testing
         #expect(size > 1024)
     }
 
+    @Test func expectedResultChangesReportContent() throws {
+        let folder = makeTempFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        var withExpected = step(index: 1, name: "Вход")
+        withExpected.expectedResultImage = ImageFixture.makeImage(width: 300, height: 300)
+
+        let expectedURL = folder.appendingPathComponent("with-expected.pdf")
+        let plainURL = folder.appendingPathComponent("plain.pdf")
+
+        try PDFRenderer.render(scenarioName: "Сценарий", startedAt: startedAt, steps: [withExpected], setup: .a4, options: PDFRenderer.Options(), to: expectedURL)
+        try PDFRenderer.render(scenarioName: "Сценарий", startedAt: startedAt, steps: [step(index: 1, name: "Вход")], setup: .a4, options: PDFRenderer.Options(), to: plainURL)
+
+        #expect(CGPDFDocument(expectedURL as CFURL)?.numberOfPages == 1)
+        #expect(CGPDFDocument(plainURL as CFURL)?.numberOfPages == 1)
+        #expect(try Data(contentsOf: expectedURL) != (try Data(contentsOf: plainURL)))
+    }
+
     @Test func markingClickPointIsOptional() throws {
         let folder = makeTempFolder()
         defer { try? FileManager.default.removeItem(at: folder) }

@@ -9,19 +9,23 @@ public struct ReportStep {
     public var image: CGImage?
     public var pointNormalized: NormalizedPoint?
     public var errorText: String?
+    /// Эталон «ожидаемый результат», если приложен к шагу.
+    public var expectedResultImage: CGImage?
 
     public init(
         index: Int,
         name: String,
         image: CGImage?,
         pointNormalized: NormalizedPoint?,
-        errorText: String?
+        errorText: String?,
+        expectedResultImage: CGImage? = nil
     ) {
         self.index = index
         self.name = name
         self.image = image
         self.pointNormalized = pointNormalized
         self.errorText = errorText
+        self.expectedResultImage = expectedResultImage
     }
 }
 
@@ -63,7 +67,10 @@ public enum PDFRenderer {
             LayoutInput(
                 index: step.index,
                 caption: ReportLayout.caption(index: step.index, name: step.name),
-                imagePixelSize: step.image.map { PixelSize(width: $0.width, height: $0.height) }
+                imagePixelSize: step.image.map { PixelSize(width: $0.width, height: $0.height) },
+                expectedResultPixelSize: step.expectedResultImage.map {
+                    PixelSize(width: $0.width, height: $0.height)
+                }
             )
         }
         let placements = ReportLayout.placements(
@@ -91,13 +98,28 @@ public enum PDFRenderer {
             for (step, placement) in zip(steps, placements) where placement.pageIndex == pageIndex {
                 drawCaption(placement.captionRect, text: ReportLayout.caption(index: step.index, name: step.name), context: context)
 
+                if let labelRect = placement.imageLabelRect {
+                    drawLabel("Факт", in: labelRect, context: context)
+                }
+                if let labelRect = placement.expectedResultLabelRect {
+                    drawLabel("Ожидаемый результат", in: labelRect, context: context)
+                }
+
                 if let image = step.image, let imageRect = placement.imageRect {
                     context.draw(image, in: imageRect)
                     if options.markClickPoint, let normalized = step.pointNormalized {
                         drawClickMarker(normalized: normalized, in: imageRect, context: context)
                     }
                 } else {
-                    drawError(step.errorText ?? "Снимок отсутствует", below: placement.captionRect, context: context)
+                    drawError(
+                        step.errorText ?? "Снимок отсутствует",
+                        below: placement.imageLabelRect ?? placement.captionRect,
+                        context: context
+                    )
+                }
+
+                if let expected = step.expectedResultImage, let expectedRect = placement.expectedResultRect {
+                    context.draw(expected, in: expectedRect)
                 }
             }
 
@@ -151,6 +173,10 @@ public enum PDFRenderer {
 
     private static func drawCaption(_ rect: CGRect, text: String, context: CGContext) {
         draw(text, font: font(size: 13, emphasized: true), color: black, at: CGPoint(x: rect.minX, y: rect.minY + 6), context: context)
+    }
+
+    private static func drawLabel(_ text: String, in rect: CGRect, context: CGContext) {
+        draw(text, font: font(size: 10), color: grey, at: CGPoint(x: rect.minX, y: rect.minY + 2), context: context)
     }
 
     private static func drawError(_ text: String, below captionRect: CGRect, context: CGContext) {

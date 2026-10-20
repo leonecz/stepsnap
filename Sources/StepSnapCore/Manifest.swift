@@ -11,6 +11,9 @@ public struct ManifestStep: Codable, Equatable, Sendable {
     public var pixelWidth: Int
     public var pixelHeight: Int
     public var errorText: String?
+    /// Эталон «ожидаемый результат»: снимок из Figma или Confluence.
+    /// `nil`, если к шагу его не прикладывали. Старые манифесты читаются без него.
+    public var expectedResultFileName: String? = nil
 }
 
 public struct Manifest: Codable, Equatable, Sendable {
@@ -25,6 +28,11 @@ public enum StepFileNames {
     public static func imageFileName(forIndex index: Int) -> String {
         let padded = String(format: "%03d", index)
         return "step-\(padded).png"
+    }
+
+    public static func expectedResultFileName(forIndex index: Int) -> String {
+        let padded = String(format: "%03d", index)
+        return "expected-\(padded).png"
     }
 }
 
